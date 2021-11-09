@@ -8,6 +8,7 @@ library(ecospat)
 library(usdm)
 library(biomod2)
 
+setwd("/home/milo/PCIC/Maestría/3erSemestre/ptc/proyectos/proyecto-hcc/github/output")
 # Cargamos los datos de Prionace_glauca
 datos <- read.csv("/home/milo/PCIC/Maestría/3erSemestre/ptc/proyectos/proyecto-hcc/github/data/Prionace_glaucaGBIF_sub.csv")
 
@@ -97,3 +98,44 @@ mpa.e1 <- ecospat.mpa(e1, xy, perc = .9)
 mpa.e1
 bin.e1 <- ecospat.binary.model(e1, mpa.e1)
 plot(bin.e1)
+
+# Generar proyecciones a futuro.
+# RCP 2.6 2050
+url <- "/home/milo/PCIC/Maestría/3erSemestre/ptc/proyectos/proyecto-hcc/github/data/cmip/"
+rcps <- c("rcp26","rcp45","rcp85")
+anios <- c("2050","2100")
+capas <- c('BO21_salinitymin_ss.tif','BO2_chlomin_ss.tif','BO2_salinitymean_bdmean.tif','BO2_tempmean_bdmean.tif','BO2_temprange_ss.tif')
+
+for (rcp in rcps) {
+  for (anio in anios) {
+    url_rcp<-paste(url,rcp,"/",anio,"/",sep="")
+    print(url_rcp)
+    capas_lista <- list()
+
+    for (i in c(1:length(capas))) {
+      capas_lista[[i]] <- raster(paste(url_rcp,capas[i],sep=""))
+      capas_lista[[i]] <- crop(capas_lista[[i]],prionace_area)
+    }
+
+    stack_capas_lista <- stack(capas_lista)
+
+    # generar la proyección futura sobre el ensamble
+    nombre_archivo <- paste(rcp,"_",anio,'_fut.img',sep="")
+    nombre_archivo_jpg <- paste(rcp,"_",anio,'_fut.jpg',sep="")
+    e1.fut <- ensemble(m1,newdata=stack_capas_lista,filename=nombre_archivo, setting=list(method='weighted',stat='TSS'))
+    # Generar el binario para el escenario futuro
+    bin.e1.fut <- ecospat.binary.model(e1.fut, mpa.e1)
+    jpeg(paste("binario_",nombre_archivo_jpg,sep=""))
+    plot(bin.e1.fut)
+    dev.off()
+    # Ahora vamos a identificar áreas de estabilidad, ganancia y pérdida de áreas (i.e., número de pixeles). Ya tenemos los mapas binarios para el periodo actual y el futuro (0, 1). Usaremos una función del paquete Biomod2 (BIOMOD_RangeSize).
+    # Primero tenemos que tener la misma resolución espacial en ambos rasters.
+
+    crs.geo <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84")  # geographical, datum WGS84
+    bin.e1.r <- projectRaster(from=bin.e1, to=bin.e1.fut, crs=crs.geo, method="bilinear")
+    cambio <- BIOMOD_RangeSize(bin.e1.r, bin.e1.fut, SpChange.Save=NULL)
+    jpeg(paste("perdida_ganancia_",nombre_archivo_jpg,sep=""))
+    plot(cambio$Diff.By.Pixel)
+    dev.off()
+  }
+}
